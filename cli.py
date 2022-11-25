@@ -116,39 +116,68 @@ def balances(ctx: Dict, end_date: str = None) -> None:
         total_events = (Event(*res) for res in result.fetchall())
         events = list(filter(lambda e: e.date_created <= end_date, total_events))
 
+        total_interest_balance = Decimal(0)
+        total_days = [
+            datetime.fromisoformat(events[0].date_created) + timedelta(days=x)
+            for x in range(
+                (datetime.fromisoformat(end_date) - datetime.fromisoformat(events[0].date_created)).days + 1
+            )
+        ]
+
         # TODO: FIXME Run interest calculation.
         @dataclass
         class Advance:
             event: Event
             balance: Decimal
+
         advances = []
-        for event in events:
-            if event.type == "advance":
-                # TODO: calculate interest for each day
-                balance = event.amount
-                if overall_payments_for_future > 0:
-                    if overall_payments_for_future > balance:
-                        overall_payments_for_future -= balance
-                        balance = 0
-                    else:
-                        balance = balance - overall_payments_for_future
-                        overall_payments_for_future = 0
-                advance = Advance(event=event, balance=round(balance, 2))
-                advances.append(advance)
-            if event.type == "payment":
-                amount_to_pay = event.amount
-                while amount_to_pay > 0:
-                    for advance in advances:
-                        if amount_to_pay > advance.balance:
-                            advance.balance = 0
-                        elif amount_to_pay < advance.balance:
-                            advance.balance -= amount_to_pay
+        for day in total_days:
+            for event in filter(lambda e: datetime.fromisoformat(e.date_created) == day, events):
+                if event.type == "advance":
+                    # TODO: calculate interest for each day
+                    balance = event.amount
+                    if overall_payments_for_future > 0:
+                        if overall_payments_for_future > balance:
+                            overall_payments_for_future -= balance
+                            balance = 0
                         else:
-                            advance.balance = 0
-                    amount_to_pay -= advance.event.amount
-                    # Sum remaining amount to future payments
-                    overall_payments_for_future += amount_to_pay
-                    break
+                            balance = balance - overall_payments_for_future
+                            overall_payments_for_future = 0
+                    advance = Advance(event=event, balance=round(balance, 2))
+                    advances.append(advance)
+                if event.type == "payment":
+                    amount_to_pay = Decimal(event.amount)
+                    while amount_to_pay > 0:
+                        _paid = 0
+                        if total_interest_balance > 0:
+                            if amount_to_pay > total_interest_balance:
+                                overall_interest_paid += total_interest_balance
+                                amount_to_pay -= total_interest_balance
+                                total_interest_balance = 0
+                            else:
+                                overall_interest_paid += amount_to_pay
+                                total_interest_balance -= amount_to_pay
+                                amount_to_pay = 0
+                        for adv in advances:
+                            if amount_to_pay > adv.balance:
+                                _paid += adv.balance
+                                adv.balance = 0
+                            elif amount_to_pay < adv.balance:
+                                _paid += amount_to_pay
+                                adv.balance -= amount_to_pay
+                            else:
+                                _paid += adv.balance
+                                adv.balance = 0
+                        amount_to_pay -= _paid
+                        if amount_to_pay > 0:
+                            # Sum remaining amount to future payments
+                            overall_payments_for_future += amount_to_pay
+                            amount_to_pay = 0
+
+            total_balance = sum(Decimal(adv.balance) for adv in advances)
+            total_interest_for_day = Decimal(total_balance) * Decimal(0.00035)
+            total_interest_balance += Decimal(total_interest_for_day)
+            overall_interest_payable_balance = Decimal(total_interest_balance)
 
         overall_advance_balance = sum(Decimal(advance.balance) for advance in advances)
 
@@ -158,7 +187,10 @@ def balances(ctx: Dict, end_date: str = None) -> None:
 
     for seq, adv in enumerate(advances, start=1):
         click.echo("{0:>10}{1:>11}{2:>17}{3:>20}".format(
-            seq, adv.event.date_created, round(Decimal(adv.event.amount), 2), adv.balance
+            seq,
+            adv.event.date_created,
+            round(Decimal(adv.event.amount), 2),
+            round(Decimal(adv.balance), 2),
         ))
 
     click.echo("\nSummary Statistics:")

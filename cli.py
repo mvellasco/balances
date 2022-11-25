@@ -103,6 +103,7 @@ def balances(ctx: Dict, end_date: str = None) -> None:
     overall_interest_payable_balance = Decimal(0)
     overall_interest_paid = Decimal(0)
     overall_payments_for_future = Decimal(0)
+    total_interest_balance = Decimal(0)
 
     # query events from database example
     with sqlite3.connect(ctx.obj["DB_PATH"]) as connection:
@@ -110,13 +111,19 @@ def balances(ctx: Dict, end_date: str = None) -> None:
         from collections import namedtuple
         from dataclasses import dataclass
         from datetime import timedelta
+
         Event = namedtuple("Event", ("id", "type", "amount", "date_created"))
+
+        @dataclass
+        class Advance:
+            event: Event
+            balance: Decimal
+
         cursor = connection.cursor()
         result = cursor.execute("select * from events order by date_created asc;")
+
         total_events = (Event(*res) for res in result.fetchall())
         events = list(filter(lambda e: e.date_created <= end_date, total_events))
-
-        total_interest_balance = Decimal(0)
         total_days = [
             datetime.fromisoformat(events[0].date_created) + timedelta(days=x)
             for x in range(
@@ -124,17 +131,14 @@ def balances(ctx: Dict, end_date: str = None) -> None:
             )
         ]
 
-        # TODO: FIXME Run interest calculation.
-        @dataclass
-        class Advance:
-            event: Event
-            balance: Decimal
-
         advances = []
-        for day in total_days:
+        for day in total_days:  # TODO: Place this in a event processor
+            # Check events for the day, calculate balances for interest
+            # and total at the end of the process
             for event in filter(lambda e: datetime.fromisoformat(e.date_created) == day, events):
+                # TODO: refactor this into a separate class that will do the
+                # operations based on the given events.
                 if event.type == "advance":
-                    # TODO: calculate interest for each day
                     balance = event.amount
                     if overall_payments_for_future > 0:
                         if overall_payments_for_future > balance:
@@ -145,10 +149,11 @@ def balances(ctx: Dict, end_date: str = None) -> None:
                             overall_payments_for_future = 0
                     advance = Advance(event=event, balance=round(balance, 2))
                     advances.append(advance)
+
                 if event.type == "payment":
                     amount_to_pay = Decimal(event.amount)
-                    while amount_to_pay > 0:
-                        _paid = 0
+                    if amount_to_pay > 0:
+                        # Pay interest
                         if total_interest_balance > 0:
                             if amount_to_pay > total_interest_balance:
                                 overall_interest_paid += total_interest_balance
@@ -158,7 +163,10 @@ def balances(ctx: Dict, end_date: str = None) -> None:
                                 overall_interest_paid += amount_to_pay
                                 total_interest_balance -= amount_to_pay
                                 amount_to_pay = 0
+
+                        # Pay the advances
                         for adv in advances:
+                            _paid = 0
                             if amount_to_pay > adv.balance:
                                 _paid += adv.balance
                                 adv.balance = 0
@@ -168,7 +176,9 @@ def balances(ctx: Dict, end_date: str = None) -> None:
                             else:
                                 _paid += adv.balance
                                 adv.balance = 0
-                        amount_to_pay -= _paid
+
+                            amount_to_pay -= _paid
+
                         if amount_to_pay > 0:
                             # Sum remaining amount to future payments
                             overall_payments_for_future += amount_to_pay
@@ -179,6 +189,7 @@ def balances(ctx: Dict, end_date: str = None) -> None:
             total_interest_balance += Decimal(total_interest_for_day)
             overall_interest_payable_balance = Decimal(total_interest_balance)
 
+        # Calculate final overall balance at the end
         overall_advance_balance = sum(Decimal(advance.balance) for advance in advances)
 
     click.echo("Advances:")

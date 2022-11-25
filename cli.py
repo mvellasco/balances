@@ -130,8 +130,8 @@ def balances(ctx: Dict, end_date: str = None) -> None:
                 (datetime.fromisoformat(end_date) - datetime.fromisoformat(events[0].date_created)).days + 1
             )
         ]
-
         advances = []
+
         for day in total_days:  # TODO: Place this in a event processor
             # Check events for the day, calculate balances for interest
             # and total at the end of the process

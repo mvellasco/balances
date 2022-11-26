@@ -5,8 +5,10 @@ from .structures import Event
 
 class EventService:
     """Hold business logic for events."""
+
     @staticmethod
     def _fetch_events(ctx):
+        """Fetch and return events."""
         with sqlite3.connect(ctx.obj["DB_PATH"]) as connection:
             cursor = connection.cursor()
             result = cursor.execute("select * from events order by date_created asc;")
@@ -15,6 +17,6 @@ class EventService:
     @staticmethod
     def get_all_events(context):
         """TODO: docstring me."""
-        db_results = EventService._fetch_events(ctx=context)
-        total_events = (Event(*res) for res in db_results)
+        results = EventService._fetch_events(ctx=context)
+        total_events = (Event(*res) for res in results)
         return total_events

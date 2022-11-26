@@ -105,80 +105,8 @@ def balances(ctx: Dict, end_date: str = None) -> None:
 
     # query events from database example
     advance_stats = AdvanceStats()
-    total_events = EventService.get_all_events(context=ctx)
-    events = list(filter(lambda e: e.date_created <= end_date, total_events))
-    total_days = [
-        datetime.fromisoformat(events[0].date_created) + timedelta(days=x)
-        for x in range(
-            (datetime.fromisoformat(end_date) - datetime.fromisoformat(events[0].date_created)).days + 1
-        )
-    ]
-    advances = []
+    advances = advance_stats.process_for_date(ctx, end_date)
 
-    for day in total_days:  # TODO: Place this in a event processor
-        # Check events for the day, calculate balances for interest
-        # and total at the end of the process
-        for event in filter(lambda e: datetime.fromisoformat(e.date_created) == day, events):
-            # TODO: refactor this into a separate class that will do the
-            # operations based on the given events.
-            if event.type == "advance":
-                balance = event.amount
-                if advance_stats.overall_payments_for_future > 0:
-                    if advance_stats.overall_payments_for_future > balance:
-                        advance_stats.overall_payments_for_future -= balance
-                        balance = 0
-                    else:
-                        balance = balance - advance_stats.overall_payments_for_future
-                        advance_stats.overall_payments_for_future = 0
-                advance = Advance(event=event, balance=round(balance, 2))
-                advances.append(advance)
-
-            if event.type == "payment":
-                amount_to_pay = Decimal(event.amount)
-                if amount_to_pay > 0:
-                    # Pay interest
-                    if advance_stats.total_interest_balance > 0:
-                        if amount_to_pay > advance_stats.total_interest_balance:
-                            advance_stats.overall_interest_paid += advance_stats.total_interest_balance
-                            amount_to_pay -= advance_stats.total_interest_balance
-                            advance_stats.total_interest_balance = 0
-                        else:
-                            advance_stats.overall_interest_paid += amount_to_pay
-                            advance_stats.total_interest_balance -= amount_to_pay
-                            amount_to_pay = 0
-
-                    # Pay the advances
-                    for adv in advances:
-                        _paid = 0
-                        if amount_to_pay > adv.balance:
-                            _paid += adv.balance
-                            adv.balance = 0
-                        elif amount_to_pay < adv.balance:
-                            _paid += amount_to_pay
-                            adv.balance -= amount_to_pay
-                        else:
-                            _paid += adv.balance
-                            adv.balance = 0
-
-                        amount_to_pay -= _paid
-
-                    if amount_to_pay > 0:
-                        # Sum remaining amount to future payments
-                        advance_stats.overall_payments_for_future += amount_to_pay
-                        amount_to_pay = 0
-
-        total_balance = advance_stats.calculate_overall_balance(advances=advances)
-        total_interest_for_day = Decimal(total_balance) * Decimal(0.00035)
-        advance_stats.total_interest_balance += Decimal(total_interest_for_day)
-        advance_stats.overall_interest_payable_balance = Decimal(advance_stats.total_interest_balance)
-
-        # Calculate final overall balance at the end
-        advance_stats.calculate_overall_balance(advances=advances)
-
-    overall_advance_balance = advance_stats.overall_advance_balance
-    overall_interest_payable_balance = advance_stats.overall_interest_payable_balance
-    overall_interest_paid = advance_stats.overall_interest_paid
-    overall_payments_for_future = advance_stats.overall_payments_for_future
     click.echo("Advances:")
     click.echo("----------------------------------------------------------")
     click.echo("{0:>10}{1:>11}{2:>17}{3:>20}".format("Identifier", "Date", "Initial Amt", "Current Balance"))
@@ -193,10 +121,20 @@ def balances(ctx: Dict, end_date: str = None) -> None:
 
     click.echo("\nSummary Statistics:")
     click.echo("----------------------------------------------------------")
-    click.echo("Aggregate Advance Balance: {0:31.2f}".format(overall_advance_balance))
-    click.echo("Interest Payable Balance: {0:32.2f}".format(overall_interest_payable_balance))
-    click.echo("Total Interest Paid: {0:37.2f}".format(overall_interest_paid))
-    click.echo("Balance Applicable to Future Advances: {0:>19.2f}".format(overall_payments_for_future))
+    click.echo(
+        "Aggregate Advance Balance: {0:31.2f}".format(advance_stats.overall_advance_balance))
+    click.echo(
+        "Interest Payable Balance: {0:32.2f}".format(
+            advance_stats.overall_interest_payable_balance
+        )
+    )
+    click.echo(
+        "Total Interest Paid: {0:37.2f}".format(advance_stats.overall_interest_paid))
+    click.echo(
+        "Balance Applicable to Future Advances: {0:>19.2f}".format(
+            advance_stats.overall_payments_for_future
+        )
+    )
 
 
 if __name__ == "__main__":

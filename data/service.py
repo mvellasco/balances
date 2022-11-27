@@ -20,3 +20,10 @@ class EventService:
         results = EventService._fetch_events(ctx=context)
         total_events = (Event(*res) for res in results)
         return total_events
+
+    @staticmethod
+    def filter_by_date(context, end_date):
+        """TODO: docstring me."""
+        total_events = EventService.get_all_events(context=context)
+        events = list(filter(lambda e: e.date_created <= end_date, total_events))
+        return events

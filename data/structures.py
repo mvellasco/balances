@@ -3,6 +3,7 @@ from collections import namedtuple
 from decimal import Decimal
 from dataclasses import dataclass
 
+
 Event = namedtuple("Event", ("id", "type", "amount", "date_created"))
 
 

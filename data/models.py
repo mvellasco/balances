@@ -21,14 +21,16 @@ class AdvanceStats:
         return self.overall_advance_balance
 
     def process_for_date(self, ctx, end_date):
-        """TODO: docstring me."""
-        total_events = EventService.get_all_events(context=ctx)
-        events = list(filter(lambda e: e.date_created <= end_date, total_events))
+        """Process all events and keep track of specific stats.
+
+        Return the advances found and processed.
+        """
+        events = EventService.filter_by_date(context=ctx, end_date=end_date)
+        first_event_date = events[0].date_created
+        dt_delta = datetime.fromisoformat(end_date) - datetime.fromisoformat(first_event_date)
         total_days = [
-            datetime.fromisoformat(events[0].date_created) + timedelta(days=x)
-            for x in range(
-                (datetime.fromisoformat(end_date) - datetime.fromisoformat(events[0].date_created)).days + 1
-            )
+            datetime.fromisoformat(first_event_date) + timedelta(days=x)
+            for x in range(dt_delta.days + 1)
         ]
         advances = []
         for day in total_days:
@@ -52,37 +54,39 @@ class AdvanceStats:
 
                 if event.type == "payment":
                     amount_to_pay = Decimal(event.amount)
-                    if amount_to_pay > 0:
-                        # Pay interest
-                        if self.total_interest_balance > 0:
-                            if amount_to_pay > self.total_interest_balance:
-                                self.overall_interest_paid += self.total_interest_balance
-                                amount_to_pay -= self.total_interest_balance
-                                self.total_interest_balance = 0
-                            else:
-                                self.overall_interest_paid += amount_to_pay
-                                self.total_interest_balance -= amount_to_pay
-                                amount_to_pay = 0
+                    if amount_to_pay <= 0:
+                        continue
 
-                        # Pay the advances
-                        for adv in advances:
-                            _paid = 0
-                            if amount_to_pay > adv.balance:
-                                _paid += adv.balance
-                                adv.balance = 0
-                            elif amount_to_pay < adv.balance:
-                                _paid += amount_to_pay
-                                adv.balance -= amount_to_pay
-                            else:
-                                _paid += adv.balance
-                                adv.balance = 0
-
-                            amount_to_pay -= _paid
-
-                        if amount_to_pay > 0:
-                            # Sum remaining amount to future payments
-                            self.overall_payments_for_future += amount_to_pay
+                    # Pay interest
+                    if self.total_interest_balance > 0:
+                        if amount_to_pay > self.total_interest_balance:
+                            self.overall_interest_paid += self.total_interest_balance
+                            amount_to_pay -= self.total_interest_balance
+                            self.total_interest_balance = 0
+                        else:
+                            self.overall_interest_paid += amount_to_pay
+                            self.total_interest_balance -= amount_to_pay
                             amount_to_pay = 0
+
+                    # Pay the advances
+                    for adv in advances:
+                        _paid = 0
+                        if amount_to_pay > adv.balance:
+                            _paid += adv.balance
+                            adv.balance = 0
+                        elif amount_to_pay < adv.balance:
+                            _paid += amount_to_pay
+                            adv.balance -= amount_to_pay
+                        else:
+                            _paid += adv.balance
+                            adv.balance = 0
+
+                        amount_to_pay -= _paid
+
+                    if amount_to_pay > 0:
+                        # Sum remaining amount to future payments
+                        self.overall_payments_for_future += amount_to_pay
+                        amount_to_pay = 0
 
             total_balance = self.calculate_overall_balance(advances=advances)
             total_interest_for_day = Decimal(total_balance) * Decimal(0.00035)

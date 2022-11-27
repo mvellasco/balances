@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from .service import EventService
 from .structures import Advance
@@ -12,13 +12,32 @@ class AdvanceStats:
         self.overall_advance_balance = Decimal(0)
         self.overall_interest_payable_balance = Decimal(0)
         self.overall_interest_paid = Decimal(0)
-        self.overall_payments_for_future = Decimal(0)
+        self._overall_payments_for_future = Decimal(0)
         self.total_interest_balance = Decimal(0)
+
+    @property
+    def overall_payments_for_future(self):
+        """Return overall payments for future."""
+        return self._overall_payments_for_future
+
+    @overall_payments_for_future.setter
+    def overall_payments_for_future(self, value):
+        try:
+            self._overall_payments_for_future = Decimal(value)
+        except (ValueError, InvalidOperation) as exc:
+            raise exc
 
     def calculate_overall_balance(self, advances):
         """Perform overall advance balance calculation."""
         self.overall_advance_balance = sum(Decimal(advance.balance) for advance in advances)
         return self.overall_advance_balance
+
+    def calculate_interest(self, advances):
+        """Calculate overall interest accrued for the day."""
+        total_balance = self.calculate_overall_balance(advances=advances)
+        total_interest_for_day = Decimal(total_balance) * Decimal(0.00035)
+        self.total_interest_balance += Decimal(total_interest_for_day)
+        self.overall_interest_payable_balance = Decimal(self.total_interest_balance)
 
     def process_for_date(self, ctx, end_date):
         """Process all events and keep track of specific stats.
@@ -88,10 +107,8 @@ class AdvanceStats:
                         self.overall_payments_for_future += amount_to_pay
                         amount_to_pay = 0
 
-            total_balance = self.calculate_overall_balance(advances=advances)
-            total_interest_for_day = Decimal(total_balance) * Decimal(0.00035)
-            self.total_interest_balance += Decimal(total_interest_for_day)
-            self.overall_interest_payable_balance = Decimal(self.total_interest_balance)
+            # Calculate interest for the day
+            self.calculate_interest(advances=advances)
 
             # Calculate final overall balance at the end
             self.calculate_overall_balance(advances=advances)

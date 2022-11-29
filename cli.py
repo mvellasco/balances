@@ -103,7 +103,6 @@ def balances(ctx: Dict, end_date: str = None) -> None:
     if end_date is None:
         end_date = datetime.now().date().isoformat()
 
-    # query events from database example
     advance_stats = AdvanceStats()
     advances = advance_stats.process_for_date(ctx, end_date)
 
